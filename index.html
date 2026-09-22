@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spin the Wheel</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: #1e1e2f;
+    color: #eee;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 16px 24px;
+    background: #15152a;
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    gap: 24px;
+    padding: 24px;
+  }
+  #left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: #26263d;
+    border-radius: 12px;
+    padding: 24px;
+    min-height: 500px;
+  }
+  #right {
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #26263d;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  #right label { font-weight: 600; }
+  textarea {
+    width: 100%;
+    height: 300px;
+    resize: vertical;
+    background: #1a1a2b;
+    color: #eee;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+  button {
+    padding: 12px 20px;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform .1s, opacity .2s;
+  }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #generateBtn { background: #4c8bf5; color: #fff; }
+  #spinBtn { background: #f5a04c; color: #222; font-size: 1.2rem; padding: 14px 40px; }
+  #wheelWrap { position: relative; width: 440px; height: 440px; }
+  #wheel { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 0 0 8px #15152a, 0 0 30px rgba(0,0,0,.6); }
+  #pointer {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 18px solid transparent;
+    border-right: 18px solid transparent;
+    border-top: 36px solid #ff3b3b;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,.6));
+    z-index: 2;
+  }
+  #placeholder { color: #888; text-align: center; font-size: 1.1rem; }
+  .hidden { display: none !important; }
+  #modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  #modalBox {
+    background: #fff; color: #222;
+    border-radius: 16px;
+    padding: 36px 48px;
+    text-align: center;
+    min-width: 320px;
+    animation: pop .35s ease;
+  }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  #modalBox h2 { font-size: 1.2rem; color: #666; margin-bottom: 8px; }
+  #winnerName { font-size: 2.4rem; font-weight: 800; color: #4c8bf5; margin-bottom: 24px; word-break: break-word; }
+  #closeModal { background: #4c8bf5; color: #fff; }
+  @media (max-width: 820px) {
+    main { flex-direction: column; }
+    #right { width: 100%; }
+    #wheelWrap { width: 320px; height: 320px; }
+  }
+</style>
+</head>
+<body>
+<header>🎯 Spin the Wheel</header>
+<main>
+  <section id="left">
+    <p id="placeholder">Enter your choices on the right and click <b>Generate Wheel</b></p>
+    <div id="wheelWrap" class="hidden">
+      <div id="pointer"></div>
+      <canvas id="wheel" width="440" height="440"></canvas>
+    </div>
+    <button id="spinBtn" class="hidden">SPIN</button>
+  </section>
+
+  <aside id="right">
+    <label for="choices">Your choices (one per line)</label>
+    <textarea id="choices" placeholder="Pizza&#10;Burger&#10;Sushi&#10;Tacos"></textarea>
+    <button id="generateBtn">Generate Wheel</button>
+  </aside>
+</main>
+
+<div id="modal" class="hidden">
+  <div id="modalBox">
+    <h2>🎉 Winner</h2>
+    <div id="winnerName"></div>
+    <button id="closeModal">Close</button>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('wheel');
+  const ctx = canvas.getContext('2d');
+  const textarea = document.getElementById('choices');
+  const generateBtn = document.getElementById('generateBtn');
+  const spinBtn = document.getElementById('spinBtn');
+  const wheelWrap = document.getElementById('wheelWrap');
+  const placeholder = document.getElementById('placeholder');
+  const modal = document.getElementById('modal');
+  const winnerName = document.getElementById('winnerName');
+  const closeModal = document.getElementById('closeModal');
+
+  const PALETTE = ['#ffadad','#ffd6a5','#fdffb6','#caffbf','#9bf6ff','#a0c4ff','#bdb2ff','#ffc6ff','#f1c0e8','#cfbaf0','#b9fbc0','#fbf8cc','#98f5e1','#fde4cf'];
+
+  let items = [];
+  let colors = [];
+  let angle = 0;          // current rotation in radians
+  let spinning = false;
+
+  function drawWheel(rotation) {
+    const n = items.length;
+    const size = canvas.width;
+    const cx = size / 2, cy = size / 2, r = size / 2 - 4;
+    const slice = (2 * Math.PI) / n;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+
+    for (let i = 0; i < n; i++) {
+      const start = i * slice;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r, start, start + slice);
+      ctx.closePath();
+      ctx.fillStyle = colors[i];
+      ctx.fill();
+      ctx.strokeStyle = '#1e1e2f';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // label
+      ctx.save();
+      ctx.rotate(start + slice / 2);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#222';
+      const fontSize = Math.max(11, Math.min(20, 220 / n + 8));
+      ctx.font = `bold ${fontSize}px Segoe UI, Arial`;
+      let label = items[i];
+      const maxW = r - 40;
+      while (ctx.measureText(label).width > maxW && label.length > 1) label = label.slice(0, -1);
+      if (label !== items[i]) label = label.slice(0, -1) + '…';
+      ctx.fillText(label, r - 14, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // center hub
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, 2 * Math.PI);
+    ctx.fillStyle = '#15152a';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 12, 0, 2 * Math.PI);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+
+  generateBtn.addEventListener('click', () => {
+    if (spinning) return;
+    items = textarea.value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (items.length < 2) {
+      alert('Enter at least 2 choices.');
+      return;
+    }
+    colors = items.map((_, i) => {
+      let c = PALETTE[i % PALETTE.length];
+      // avoid same color on last & first slice when they touch
+      if (i === items.length - 1 && c === colors[0]) c = PALETTE[(i + 1) % PALETTE.length];
+      return c;
+    });
+    angle = 0;
+    drawWheel(angle);
+    placeholder.classList.add('hidden');
+    wheelWrap.classList.remove('hidden');
+    spinBtn.classList.remove('hidden');
+    spinBtn.disabled = false;
+  });
+
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+  spinBtn.addEventListener('click', () => {
+    if (spinning || items.length < 2) return;
+    spinning = true;
+    spinBtn.disabled = true;
+    generateBtn.disabled = true;
+
+    const startAngle = angle;
+    const extraSpins = 5 + Math.random() * 5;              // 5–10 full turns
+    const targetAngle = startAngle + extraSpins * 2 * Math.PI + Math.random() * 2 * Math.PI;
+    const duration = 4500 + Math.random() * 1500;          // 4.5–6s
+    const startTime = performance.now();
+
+    function frame(now) {
+      const t = Math.min(1, (now - startTime) / duration);
+      angle = startAngle + (targetAngle - startAngle) * easeOutCubic(t);
+      drawWheel(angle);
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        spinning = false;
+        spinBtn.disabled = false;
+        generateBtn.disabled = false;
+        showWinner();
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+  function showWinner() {
+    const n = items.length;
+    const slice = (2 * Math.PI) / n;
+    // pointer is at top => angle -90° (i.e. 3π/2 in canvas coords)
+    const pointerAngle = (3 * Math.PI / 2 - angle) % (2 * Math.PI);
+    const normalized = (pointerAngle + 2 * Math.PI) % (2 * Math.PI);
+    const index = Math.floor(normalized / slice);
+    winnerName.textContent = items[index];
+    modal.classList.remove('hidden');
+  }
+
+  closeModal.addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.add('hidden'); });
+</script>
+</body>
+</html>
